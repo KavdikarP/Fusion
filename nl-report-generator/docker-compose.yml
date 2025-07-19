@@ -1,0 +1,12 @@
+version: '3.8'
+
+services:
+  nl-report-generator:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/service_account.json
+    volumes:
+      - .:/app
+    command: python app.py
