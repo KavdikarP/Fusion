@@ -20,6 +20,7 @@ gcloud auth application-default set-quota-project $PROJECT_ID
 
 # Build image
 gcloud builds submit --tag $CLOUDRUN_SERVICE_IMAGE_NAME .
+--logging=CLOUD_LOGGING_ONLY
 
 # Deploy to Cloud Run
 gcloud run deploy $SERVICE_NAME \
