@@ -1,34 +1,45 @@
 import streamlit as st
-import requests
+import pandas as pd
+import os
+from vertex_ai_utils import generate_sql_from_nl
+from db_utils import fetch_sql_results
+from report_generator import generate_pdf_report, generate_excel_report, generate_ppt_report
 
 # API Endpoint from Cloud Run
-API_URL = "https://YOUR_CLOUD_RUN_URL/query"
+#API_URL = "https://cxo-prism-799196756327.asia-south1.run.app//query"
 
-st.title("Natural Language Report Generator 📊")
+st.set_page_config(page_title="CXO's Prism")
+st.title("CXO's Prism - Insurance AI Reporting Tool")
 
-# User Input
-nl_query = st.text_area("Enter your natural language query:", height=150)
-file_format = st.selectbox("Select Output Format:", ["Excel", "PDF", "PPT"])
+query_input = st.text_area("Enter your natural language query:")
+
+output_format = st.selectbox("Select Report Format", ["PDF", "Excel", "PowerPoint"])
 
 if st.button("Generate Report"):
-    if not nl_query.strip():
+    if not query_input.strip():
         st.error("Please enter a query.")
     else:
-        with st.spinner("Generating your report..."):
-            payload = {
-                "query": nl_query,
-                "format": file_format.lower()
-            }
-            try:
-                response = requests.post(API_URL, json=payload)
-                if response.status_code == 200:
-                    data = response.json()
-                    download_url = data.get("file_url")
-                    sql_used = data.get("sql_used")
-                    st.success("Report generated successfully!")
-                    st.write(f"**SQL Query Generated:** `{sql_used}`")
-                    st.markdown(f"[Download your {file_format} report]({download_url})", unsafe_allow_html=True)
-                else:
-                    st.error(f"Error: {response.json().get('error', 'Unknown error')}")
-            except Exception as e:
-                st.error(f"Request failed: {e}")
+        st.info("Generating SQL using Vertex AI...")
+        sql_query = generate_sql_from_nl(query_input)
+        st.code(sql_query)
+
+        st.info("Fetching Data from Database...")
+        df = fetch_sql_results(sql_query)
+
+        if df.empty:
+            st.warning("No data found for your query.")
+        else:
+            st.dataframe(df)
+            st.success(f"Generating {output_format} report...")
+
+            if output_format == "PDF":
+                report_url = generate_pdf_report(df)
+            elif output_format == "Excel":
+                report_url = generate_excel_report(df)
+            else:
+                report_url = generate_ppt_report(df)
+
+            st.success("Report generated and uploaded to Cloud Storage.")
+            st.markdown(f"[Download {output_format} Report]({report_url})")
+
+

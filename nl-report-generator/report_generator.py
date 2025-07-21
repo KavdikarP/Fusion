@@ -1,33 +1,49 @@
 import pandas as pd
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle
-from reportlab.lib import colors
-from pptx import Presentation
+from fpdf import FPDF
+import pptx
 from pptx.util import Inches
+from google.cloud import storage
+import os
+import uuid
 
-def generate_excel(df, file_path):
-    df.to_excel(file_path, index=False, engine='openpyxl')
+BUCKET_NAME = os.getenv("BUCKET_NAME", "your-gcs-bucket")
+#BUCKET_NAME = "cxo-prism"
 
-def generate_pdf(df, file_path):
-    doc = SimpleDocTemplate(file_path)
-    data = [df.columns.tolist()] + df.values.tolist()
-    table = Table(data)
-    table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-        ('GRID', (0,0), (-1,-1), 1, colors.black)
-    ]))
-    doc.build([table])
+storage_client = storage.Client()
 
-def generate_ppt(df, file_path):
-    prs = Presentation()
-    slide = prs.slides.add_slide(prs.slide_layouts[5])
-    rows, cols = df.shape
-    table = slide.shapes.add_table(rows+1, cols, Inches(0.5), Inches(1.5), Inches(9), Inches(5)).table
 
-    for i, col_name in enumerate(df.columns):
-        table.cell(0, i).text = str(col_name)
+def upload_to_gcs(file_path):
+    bucket = storage_client.bucket(BUCKET_NAME)
+    destination_blob_name = f"reports/{uuid.uuid4().hex}/{os.path.basename(file_path)}"
+    blob = bucket.blob(destination_blob_name)
+    blob.upload_from_filename(file_path)
+    return blob.public_url
 
-    for row_idx, row in enumerate(df.values):
-        for col_idx, value in enumerate(row):
-            table.cell(row_idx+1, col_idx).text = str(value)
 
-    prs.save(file_path)
+def generate_pdf_report(df):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", size=10)
+    for index, row in df.iterrows():
+        pdf.cell(200, 8, txt=str(row.to_dict()), ln=True)
+    output_path = "report.pdf"
+    pdf.output(output_path)
+    return upload_to_gcs(output_path)
+
+
+def generate_excel_report(df):
+    output_path = "report.xlsx"
+    df.to_excel(output_path, index=False)
+    return upload_to_gcs(output_path)
+
+
+def generate_ppt_report(df):
+    prs = pptx.Presentation()
+    slide_layout = prs.slide_layouts[5]
+    slide = prs.slides.add_slide(slide_layout)
+    text_frame = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(8), Inches(5)).text_frame
+    for index, row in df.iterrows():
+        text_frame.add_paragraph(str(row.to_dict()))
+    output_path = "report.pptx"
+    prs.save(output_path)
+    return upload_to_gcs(output_path)
