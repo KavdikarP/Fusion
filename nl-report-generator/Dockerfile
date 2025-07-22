@@ -15,7 +15,7 @@ COPY . /app
 WORKDIR /app
 
 # Expose the Streamlit port
-EXPOSE 8501 
+EXPOSE 8502
 
 # Run the Streamlit app
 # CMD ["streamlit", "run", "claim_analysis.py", "--server.enableCORS"]
