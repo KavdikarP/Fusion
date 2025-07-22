@@ -18,8 +18,7 @@ gcloud config set project $PROJECT_ID
 gcloud auth application-default set-quota-project $PROJECT_ID
 
 # Build image
-gcloud builds submit --tag gcr.io/$PROJECT_ID/$SERVICE_NAME .
-
+gcloud builds submit . --tag gcr.io/$PROJECT_ID/$SERVICE_NAME
 
 # Deploy image
 gcloud run deploy $CLOUDRUN_SERVICE_NAME \
