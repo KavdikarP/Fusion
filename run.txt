@@ -1,0 +1,27 @@
+-----to run on local------
+
+python3 -m venv path/to/venv
+source path/to/venv/bin/activate
+python3 -m pip install xyz
+
+pip install streamlit google-cloud-aiplatform vertexai psycopg2-binary  pandas fpdf
+
+streamlit run app.py
+
+----db set up ---
+brew install postgresql
+brew services start postgresql
+
+psql postgres
+
+export DB_HOST=localhost
+
+
+---insert data ---
+psql -U local_user -d cxo_prism -f seed_data.sql
+
+
+----connect to db----
+psql -U local_user -d cxo_prism
+\dt 
+\users
