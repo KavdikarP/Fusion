@@ -59,6 +59,8 @@ field_mappings = st.text_area(
 )
 
 fields_to_compare = [f.strip() for f in field_mappings.split(",") if f.strip()]
+def clean_text(text):
+    return " ".join(text.split())
 
 if st.button("Generate QC Report"):
     if not quote_file or not policy_file:
@@ -72,10 +74,12 @@ if st.button("Generate QC Report"):
                         text += page.get_text()
                 return text
 
-            def extract_text_from_excel(file):
+            #def extract_text_from_excel(file):
+            def extract_text_from_excel(file, max_rows=50):
                 dfs = pd.read_excel(file, sheet_name=None)
                 text = ""
                 for sheet, df in dfs.items():
+                    df = df.head(max_rows)
                     text += f"\n--- Sheet: {sheet} ---\n"
                     text += df.to_string()
                 return text
@@ -86,6 +90,9 @@ if st.button("Generate QC Report"):
                 quote_text = extract_text_from_excel(quote_file)
 
             policy_text = extract_text_from_pdf(policy_file)
+            quote_text = clean_text(quote_text[:20000])
+            policy_text = clean_text(policy_text[:20000])
+
 
             # Gemini prompt with strict JSON output requirement
             prompt = f"""
@@ -115,6 +122,11 @@ if st.button("Generate QC Report"):
             response_text = response.text
 
             try:
+                response_text = response.candidates[0].content.parts[0].text if response.candidates and response.candidates[0].content.parts else ""
+
+                if not response_text.strip():
+                    st.error("⚠️ Gemini did not return any output. The input may be too long or blocked by safety filters.")
+                    st.stop()
                 data = json.loads(response_text)
                 df = pd.DataFrame(data)
 
@@ -149,5 +161,5 @@ if st.button("Generate QC Report"):
                     st.download_button("Download QC Report (Excel)", f, file_name="QC_Report.xlsx")
             except Exception as e:
                 st.warning("Could not parse JSON. Showing raw output as fallback:")
-                st.markdown(response_text)
+                st.markdown(str(response))
                 st.error(str(e))
