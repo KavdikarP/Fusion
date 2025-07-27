@@ -119,7 +119,6 @@ if st.button("Generate QC Report"):
             """
 
             response = gemini_model.generate_content(prompt)
-            response_text = response.text
 
             try:
                 response_text = response.candidates[0].content.parts[0].text if response.candidates and response.candidates[0].content.parts else ""
