@@ -1,121 +1,126 @@
 import streamlit as st
-import vertexai
-from vertexai.generative_models import GenerativeModel
-import psycopg2
 import pandas as pd
-from fpdf import FPDF
-from sqlalchemy import create_engine
-from sqlalchemy.exc import SQLAlchemyError
+import fitz  # PyMuPDF for PDF parsing
+import openpyxl
+import tempfile
+import os
+import json
+from google.cloud import storage
+from vertexai.preview.language_models import GenerativeModel
 
-# ---------- CONFIGURATION ---------
+# Initialize the best available Gemini model (stable, accurate, consistent)
+gemini_model = GenerativeModel(
+    model_name="gemini-1.5-pro-preview",
+    generation_config={
+        "temperature": 0.0,
+        "top_p": 0.8,
+        "top_k": 40,
+        "max_output_tokens": 2048
+    }
+)
 
-# POSTGRES_CONFIG = {
-#     'host': '35.244.42.223',
-#     'database': 'nl-report-db',
-#     'user': 'postgres',
-#     'password': 'test123',
-#     'port': '6432'
-# }
-POSTGRES_CONFIG = {
-    'host': 'localhost',
-    'database': 'cxo_prism',
-    'user': 'local_user',
-    'password': 'local_password',
-    'port': '5432'
-}
+# Set up your GCS bucket name
+GCS_BUCKET_NAME = "cxo-prism"
 
-PROJECT_ID = 'deft-clarity-461011-c7'
-REGION = 'us-central1'
-MODEL_NAME = 'gemini-2.5-flash-lite'  # Or latest model available
+def upload_to_gcs(local_path, gcs_path):
+    storage_client = storage.Client()
+    bucket = storage_client.bucket(GCS_BUCKET_NAME)
+    blob = bucket.blob(gcs_path)
+    blob.upload_from_filename(local_path)
+    return f"gs://{GCS_BUCKET_NAME}/{gcs_path}"
 
-# ---------- INITIALIZE VERTEX AI ----------
-vertexai.init(project=PROJECT_ID, location=REGION)
-model = GenerativeModel(MODEL_NAME)
+st.set_page_config(page_title="Document Comparison QC Tool", layout="wide")
+st.title("📑 GenAI Document Comparison QC Tool")
 
-# ---------- FUNCTION: GENERATE SQL ----------
-def generate_sql(natural_query, table_schema):
-    prompt = f"""You are a PostgreSQL SQL expert. Given the table schema below, generate a single-line SQL query that answers the user's question.
+st.markdown("Upload your **Quotation** (PDF or Excel) and **Policy Schedule** (PDF) to compare them and generate a QC report.")
 
-Important rules:
-- Only write a syntactically correct SELECT query.
-- Do NOT use INSERT, UPDATE, DELETE, DROP, or any other modifying statements.
-- Do NOT include explanations, markdown, or comments.
-- Only return the raw SQL query on a single line, nothing else.
+col1, col2 = st.columns(2)
 
-Schema:
-{table_schema}
+with col1:
+    quote_file = st.file_uploader("Upload Quotation (PDF/Excel)", type=["pdf", "xlsx"])
 
-User Question:
-{natural_query}"""
-    response = model.generate_content([prompt])
-    sql_query = response.text.strip()
-    if not sql_query.lower().startswith("select"):
-        raise Exception("Generated SQL query is invalid or not a SELECT statement.")
-    return sql_query
+with col2:
+    policy_file = st.file_uploader("Upload Policy Schedule (PDF)", type=["pdf"])
 
-# ---------- FUNCTION: EXECUTE SQL ----------
-def run_sql(query):
-    engine = create_engine(f"postgresql://{POSTGRES_CONFIG['user']}:{POSTGRES_CONFIG['password']}@{POSTGRES_CONFIG['host']}:{POSTGRES_CONFIG['port']}/{POSTGRES_CONFIG['database']}")
-    try:
-        with engine.connect() as connection:
-            df = pd.read_sql_query(query, connection)
-        return df
-    except SQLAlchemyError as e:
-        raise Exception(f"SQLAlchemy Error: {e}")
-    finally:
-        engine.dispose()
+st.markdown("### 🔧 Field Mapping Configuration")
+default_fields = ["Sum Insured", "Premium", "Deductible", "Endorsements", "Exclusions"]
+field_mappings = st.text_area(
+    "Enter parameters to compare (comma-separated):",
+    value=", ".join(default_fields)
+)
 
-# ---------- FUNCTION: EXPORT PDF ----------
-def dataframe_to_pdf(df):
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", size=12)
-    for i in range(len(df)):
-        row = ', '.join(str(x) for x in df.iloc[i])
-        pdf.cell(200, 10, txt=row, ln=True)
-    pdf_path = "/tmp/output.pdf"
-    pdf.output(pdf_path)
-    return pdf_path
+fields_to_compare = [f.strip() for f in field_mappings.split(",") if f.strip()]
 
-# ---------- STREAMLIT UI ----------
-st.title("Natural Language SQL Query App (Vertex AI + Postgres)")
-
-user_question = st.text_input("Ask your question about the database:")
-
-output_format = st.radio("Choose Output Format:", ["Natural Language", "Download PDF"])
-
-if st.button("Run Query"):
-    if user_question.strip() == "":
-        st.error("Please enter a question.")
+if st.button("Generate QC Report"):
+    if not quote_file or not policy_file:
+        st.error("Please upload both the Quotation and Policy Schedule files.")
     else:
-        # Get Table Schema for prompting
-        conn = psycopg2.connect(**POSTGRES_CONFIG)
-        cursor = conn.cursor()
-        cursor.execute("""SELECT table_name, column_name, data_type 
-                          FROM information_schema.columns 
-                          WHERE table_schema = 'public'""")
-        schema_rows = cursor.fetchall()
-        conn.close()
+        with st.spinner("Extracting and comparing documents using Gemini..."):
+            def extract_text_from_pdf(file):
+                text = ""
+                with fitz.open(stream=file.read(), filetype="pdf") as doc:
+                    for page in doc:
+                        text += page.get_text()
+                return text
 
-        schema_text = ""
-        for row in schema_rows:
-            schema_text += f"Table: {row[0]} - Column: {row[1]} ({row[2]})\n"
+            def extract_text_from_excel(file):
+                dfs = pd.read_excel(file, sheet_name=None)
+                text = ""
+                for sheet, df in dfs.items():
+                    text += f"\n--- Sheet: {sheet} ---\n"
+                    text += df.to_string()
+                return text
 
-        sql_query = generate_sql(user_question, schema_text)
-        st.code(sql_query, language='sql')
-        if not sql_query.strip():
-            st.error("Generated SQL query is empty or invalid.")
-            raise Exception("Generated SQL query is empty or invalid.")
-        try:
-            df_result = run_sql(sql_query)
-            st.success("Query Executed Successfully.")
-
-            if output_format == "Natural Language":
-                st.dataframe(df_result)
+            if quote_file.name.endswith(".pdf"):
+                quote_text = extract_text_from_pdf(quote_file)
             else:
-                pdf_file_path = dataframe_to_pdf(df_result)
-                with open(pdf_file_path, "rb") as f:
-                    st.download_button("Download PDF", f, file_name="query_result.pdf")
+                quote_text = extract_text_from_excel(quote_file)
 
-        except Exception as e:
-            st.error(f"Error executing SQL: {e}")
+            policy_text = extract_text_from_pdf(policy_file)
+
+            # Gemini prompt with strict JSON output requirement
+            prompt = f"""
+            You are a commercial insurance underwriter. Your job is to perform accurate comparisons.
+            Use only the information provided in the documents below. Do not assume or hallucinate values.
+
+            Documents:
+            1. Quotation:
+            {quote_text}
+
+            2. Policy Schedule:
+            {policy_text}
+
+            Compare the following fields: {', '.join(fields_to_compare)}.
+
+            Output a valid JSON array where each element has the following keys:
+              - parameter (string)
+              - quotation_value (string)
+              - policy_value (string)
+              - match_status ("Match", "Not Match", or "Missing")
+              - comments (string)
+
+            Ensure the format is consistent for every item and no extra text is added.
+            """
+
+            response = gemini_model.generate_content(prompt)
+            response_text = response.text
+
+            try:
+                data = json.loads(response_text)
+                df = pd.DataFrame(data)
+                st.dataframe(df)
+                temp_dir = tempfile.mkdtemp()
+                output_path = os.path.join(temp_dir, "qc_report.xlsx")
+                df.to_excel(output_path, index=False)
+
+                # Upload to GCS
+                gcs_path = f"reports/qc_report_{quote_file.name.split('.')[0]}_{policy_file.name.split('.')[0]}.xlsx"
+                gcs_url = upload_to_gcs(output_path, gcs_path)
+
+                st.success(f"✅ Report saved to GCS: {gcs_url}")
+                with open(output_path, "rb") as f:
+                    st.download_button("Download QC Report (Excel)", f, file_name="QC_Report.xlsx")
+            except Exception as e:
+                st.warning("Could not parse JSON. Showing raw output as fallback:")
+                st.markdown(response_text)
+                st.error(str(e))
