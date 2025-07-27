@@ -6,11 +6,20 @@ import tempfile
 import os
 import json
 from google.cloud import storage
-from vertexai.preview.language_models import GenerativeModel
+import vertexai
+from vertexai.generative_models import GenerativeModel
+
+
+PROJECT_ID = 'deft-clarity-461011-c7'
+REGION = 'us-central1'
+MODEL_NAME = 'gemini-1.5-pro-preview'  # Or latest model available
+
+# ---------- INITIALIZE VERTEX AI ----------
+vertexai.init(project=PROJECT_ID, location=REGION)
 
 # Initialize the best available Gemini model (stable, accurate, consistent)
 gemini_model = GenerativeModel(
-    model_name="gemini-1.5-pro-preview",
+    model_name=MODEL_NAME,
     generation_config={
         "temperature": 0.0,
         "top_p": 0.8,
@@ -108,13 +117,31 @@ if st.button("Generate QC Report"):
             try:
                 data = json.loads(response_text)
                 df = pd.DataFrame(data)
+
+                # Add score summary at the top
+                total = len(df)
+                matches = df['match_status'].str.lower().eq('match').sum()
+                not_matches = df['match_status'].str.lower().eq('not match').sum()
+                missing = df['match_status'].str.lower().eq('missing').sum()
+                match_score = round((matches / total) * 100, 2) if total else 0
+
+                st.markdown(f"### ✅ Match Summary")
+                st.markdown(f"- **Total Fields Compared**: {total}")
+                st.markdown(f"- ✅ **Matched**: {matches}")
+                st.markdown(f"- ❌ **Not Matched**: {not_matches}")
+                st.markdown(f"- ⚠️ **Missing**: {missing}")
+                st.markdown(f"- 🧮 **Match Score**: {match_score}%")
+
                 st.dataframe(df)
                 temp_dir = tempfile.mkdtemp()
                 output_path = os.path.join(temp_dir, "qc_report.xlsx")
                 df.to_excel(output_path, index=False)
 
-                # Upload to GCS
-                gcs_path = f"reports/qc_report_{quote_file.name.split('.')[0]}_{policy_file.name.split('.')[0]}.xlsx"
+                 # Upload to GCS with timestamped version
+                timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+                base_q = quote_file.name.split('.')[0]
+                base_p = policy_file.name.split('.')[0]
+                gcs_path = f"reports/qc_report_{base_q}_{base_p}_{timestamp}.xlsx"
                 gcs_url = upload_to_gcs(output_path, gcs_path)
 
                 st.success(f"✅ Report saved to GCS: {gcs_url}")
