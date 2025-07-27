@@ -2,4 +2,5 @@ streamlit
 pandas
 openpyxl
 PyMuPDF
+google-cloud-storage
 google-cloud-aiplatform>=1.38.1
