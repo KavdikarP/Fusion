@@ -7,18 +7,17 @@ import os
 import json
 from google.cloud import storage
 import vertexai
-from vertexai.generative_models import GenerativeModel
-
+from vertexai import generative_models, init
 
 PROJECT_ID = 'deft-clarity-461011-c7'
 REGION = 'us-central1'
 MODEL_NAME = 'gemini-1.5-pro-preview'  # Or latest model available
 
 # ---------- INITIALIZE VERTEX AI ----------
-vertexai.init(project=PROJECT_ID, location=REGION)
+init(project=PROJECT_ID, location=REGION)
 
 # Initialize the best available Gemini model (stable, accurate, consistent)
-gemini_model = GenerativeModel(
+gemini_model = generative_models.GenerativeModel(
     model_name=MODEL_NAME,
     generation_config={
         "temperature": 0.0,
