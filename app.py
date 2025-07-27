@@ -11,7 +11,7 @@ from vertexai import generative_models, init
 
 PROJECT_ID = 'deft-clarity-461011-c7'
 REGION = 'us-central1'
-MODEL_NAME = 'gemini-1.5-pro-preview'  # Or latest model available
+MODEL_NAME = 'gemini-2.5-pro'  # Or latest model available
 
 # ---------- INITIALIZE VERTEX AI ----------
 init(project=PROJECT_ID, location=REGION)
@@ -26,6 +26,7 @@ gemini_model = generative_models.GenerativeModel(
         "max_output_tokens": 2048
     }
 )
+
 
 # Set up your GCS bucket name
 GCS_BUCKET_NAME = "cxo-prism"
